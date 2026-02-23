@@ -4,6 +4,22 @@ import pandas as pd
 from datetime import date
 from utils import get_connection, fetch_task_tree, fetch_statuses, insert_status_log, get_current_status, get_category_id
 import io
+import subprocess
+import sys
+
+# -----------------------------
+# Run DBSettup.py once per session
+# -----------------------------
+if "db_initialized" not in st.session_state:
+    result = subprocess.run(
+        [sys.executable, "DBSettup.py"],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        st.error(f"Database setup failed:\n{result.stderr}")
+        st.stop()
+    st.session_state["db_initialized"] = True
 
 # -----------------------------
 # Database Connection

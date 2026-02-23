@@ -12,7 +12,7 @@ import sys
 # -----------------------------
 if "db_initialized" not in st.session_state:
     result = subprocess.run(
-        [sys.executable, "DBSettup.py"],
+        [sys.executable, "DBSetup.py"],
         capture_output=True,
         text=True
     )
@@ -616,3 +616,4 @@ h4 {
             mime="text/markdown"
         )
 st.caption("Export includes all tasks, sorted by due date, with descriptions and full category hierarchy.")
+

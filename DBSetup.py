@@ -2,8 +2,6 @@ import sqlite3
 from datetime import date
 import sys
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
 def setup_database(db_path="todo.db"):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -129,4 +127,5 @@ if __name__ == "__main__":
     # Accept optional db path as first CLI argument
     db_path = sys.argv[1] if len(sys.argv) > 1 else "todo.db"
     setup_database(db_path)
+
 

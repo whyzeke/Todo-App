@@ -14,7 +14,6 @@ import re
 # Profile Management
 # -----------------------------
 PROFILES_FILE = "profiles.json"
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 def load_profiles():
     if os.path.exists(PROFILES_FILE):
@@ -703,4 +702,5 @@ h4 {
             mime="text/markdown"
         )
 st.caption("Export includes all tasks, sorted by due date, with descriptions and full category hierarchy.")
+
 

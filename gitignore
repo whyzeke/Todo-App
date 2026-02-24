@@ -1,0 +1,5 @@
+.streamlit/secrets.toml
+*.db
+profiles.json
+__pycache__/
+*.pyc

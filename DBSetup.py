@@ -1,9 +1,9 @@
 import sqlite3
 from datetime import date
+import sys
 
 
 def setup_database(db_path="todo.db"):
-    # Connect to the SQLite database
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
@@ -22,11 +22,11 @@ def setup_database(db_path="todo.db"):
     cursor.executemany('''
     INSERT OR IGNORE INTO priorities (level, description, color) VALUES (?, ?, ?)
     ''', [
-        (1, 'Very Low - No potential to cause raod blocks if not completed', '#00FF00'),    # Green
+        (1, 'Very Low - No potential to cause road blocks if not completed', '#00FF00'),
         (2, 'Low - Unlikely to cause road blocks if not completed', '#99FF00'),
-        (3, 'Medium - Has low potential to cause road blocks if not completed', '#FFFF00'),     # Yellow
-        (4, 'High - can cause road blocks if not finished', '#FF9900'),       # Orange
-        (5, 'Very High - Will cause road blocks if not finished', '#FF0000')   # Red
+        (3, 'Medium - Has low potential to cause road blocks if not completed', '#FFFF00'),
+        (4, 'High - can cause road blocks if not finished', '#FF9900'),
+        (5, 'Very High - Will cause road blocks if not finished', '#FF0000')
     ])
 
     # -----------------------------
@@ -50,7 +50,7 @@ def setup_database(db_path="todo.db"):
     ])
 
     # -----------------------------
-    # 3. Statuses table (lookup)
+    # 3. Statuses table
     # -----------------------------
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS statuses (
@@ -72,7 +72,7 @@ def setup_database(db_path="todo.db"):
     ])
 
     # -----------------------------
-    # 4. Categories table (recursive for sub-categories)
+    # 4. Categories table
     # -----------------------------
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS categories (
@@ -83,23 +83,8 @@ def setup_database(db_path="todo.db"):
     )
     ''')
 
-    # Optional: Insert some example categories (uncomment if you want starters)
-    """
-    cursor.executemany('''
-    INSERT OR IGNORE INTO categories (name, parent_id) VALUES (?, ?)
-    ''', [
-        ('Work', None),
-        ('Personal', None),
-        ('Health', None),
-        ('Projects', None),
-        ('Home', None),
-    ])
-    # Example sub-categories
-    # cursor.execute("INSERT OR IGNORE INTO categories (name, parent_id) VALUES ('Meetings', (SELECT id FROM categories WHERE name='Work'))")
-    """
-
     # -----------------------------
-    # 5. Tasks table (now with category_id)
+    # 5. Tasks table
     # -----------------------------
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS tasks (
@@ -107,8 +92,8 @@ def setup_database(db_path="todo.db"):
         title TEXT NOT NULL,
         description TEXT,
         due_date DATE,
-        parent_id INTEGER,          -- for sub-tasks
-        category_id INTEGER,        -- link to category (nullable)
+        parent_id INTEGER,
+        category_id INTEGER,
         priority_id INTEGER,
         threat_id INTEGER,
         FOREIGN KEY (parent_id) REFERENCES tasks (id) ON DELETE CASCADE,
@@ -134,12 +119,12 @@ def setup_database(db_path="todo.db"):
     )
     ''')
 
-    # Commit and close
     conn.commit()
     conn.close()
+    print(f"Database '{db_path}' set up successfully.")
 
-    print("SQLite database 'todo.db' has been updated successfully!")
-    print("Now includes a recursive 'categories' table and tasks can be assigned to a category.")
 
 if __name__ == "__main__":
-    setup_database()
+    # Accept optional db path as first CLI argument
+    db_path = sys.argv[1] if len(sys.argv) > 1 else "todo.db"
+    setup_database(db_path)

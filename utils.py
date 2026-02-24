@@ -1,44 +1,37 @@
 import sqlite3
 import pandas as pd
 from datetime import datetime, date
+import streamlit as st
+
+def get_db_path():
+    """Return the current profile's DB path from session state."""
+    return st.session_state.get("db_path", "todo.db")
 
 def get_connection():
-    # Adapter for datetime objects to store them as ISO 8601 strings
+    db_path = get_db_path()
+
     def adapt_datetime_iso(val):
-        """Adapt datetime.datetime to ISO 8601 string."""
         return val.isoformat()
 
-    # Converter for ISO 8601 strings back to datetime objects
     def convert_datetime_iso(val):
-        """Convert ISO 8601 string to datetime.datetime object."""
         try:
-            # Use fromisoformat for speed and timezone awareness in modern Python (3.7+)
             return datetime.fromisoformat(val.decode('utf-8'))
         except ValueError:
-            # Fallback for older formats if necessary
             return datetime.strptime(val.decode('utf-8'), '%Y-%m-%d %H:%M:%S')
 
-    # Adapter for date objects
     def adapt_date_iso(val):
-        """Adapt datetime.date to ISO 8601 string."""
         return val.isoformat()
 
-    # Converter for date objects
     def convert_date_iso(val):
-        """Convert ISO 8601 string to datetime.date object."""
         return date.fromisoformat(val.decode('utf-8'))
 
-    # Register the new adapters and converters
     sqlite3.register_adapter(datetime, adapt_datetime_iso)
     sqlite3.register_adapter(date, adapt_date_iso)
     sqlite3.register_converter("timestamp", convert_datetime_iso)
-    sqlite3.register_converter("datetime", convert_datetime_iso) # Also register for 'datetime' type
+    sqlite3.register_converter("datetime", convert_datetime_iso)
     sqlite3.register_converter("date", convert_date_iso)
 
-    # When connecting, ensure you use detect_types=sqlite3.PARSE_DECLTYPES
-    # or detect_types=sqlite3.PARSE_COLNAMES so that converters are used.
-    # PARSE_DECLTYPES uses column declared types to decide converter.
-    return sqlite3.connect('todo.db', detect_types=sqlite3.PARSE_DECLTYPES)
+    return sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES)
 
 def fetch_task_tree(selected_category_ids=None, show_completed=False):
     with get_connection() as conn:
@@ -156,7 +149,6 @@ def fetch_statuses():
 def build_task_hierarchy_for_tree(show_completed=False):
     """Fetch tasks for the tree, optionally filtering out Completed/Cancelled"""
     with get_connection() as conn:
-        # Use parameter: 1 if show_completed else 0
         include_all = 1 if show_completed else 0
         
         query = """
@@ -172,7 +164,6 @@ def build_task_hierarchy_for_tree(show_completed=False):
             LEFT JOIN task_status_logs tsl ON tsl.id = latest_log.max_id
             LEFT JOIN statuses s ON tsl.status_id = s.id
             UNION ALL
-            -- Tasks with no logs
             SELECT t.id AS task_id, 'Pending' AS status
             FROM tasks t
             WHERE NOT EXISTS (SELECT 1 FROM task_status_logs WHERE task_id = t.id)
@@ -197,7 +188,6 @@ def build_task_hierarchy_for_tree(show_completed=False):
     if df.empty:
         return []
     
-    # Rest of the function unchanged (children_map, build_node, etc.)
     children_map = {}
     for _, row in df.iterrows():
         parent = row['parent_id'] if pd.notna(row['parent_id']) else None

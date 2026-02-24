@@ -24,7 +24,9 @@ def get_profile_id() -> int:
 def fetch_profiles() -> pd.DataFrame:
     client = get_client()
     response = client.table("profiles").select("id, name").order("name").execute()
-    return pd.DataFrame(response.data or [])
+    data = response.data or []
+    # Always return a DataFrame with the expected columns, even when empty
+    return pd.DataFrame(data, columns=["id", "name"]) if not data else pd.DataFrame(data)
 
 
 def create_profile(name: str) -> int:

@@ -6,13 +6,125 @@ from utils import get_connection, fetch_task_tree, fetch_statuses, insert_status
 import io
 import subprocess
 import sys
+import json
+import os
+import re
 
 # -----------------------------
-# Run DBSettup.py once per session
+# Profile Management
+# -----------------------------
+PROFILES_FILE = "profiles.json"
+
+def load_profiles():
+    if os.path.exists(PROFILES_FILE):
+        with open(PROFILES_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_profiles(profiles):
+    with open(PROFILES_FILE, "w") as f:
+        json.dump(profiles, f, indent=2)
+
+def slugify(name):
+    """Turn a display name into a safe filename."""
+    return re.sub(r'[^a-z0-9_]', '_', name.strip().lower())
+
+def init_profile_db(db_path):
+    """Run DBSetup for a given db path."""
+    result = subprocess.run(
+        [sys.executable, "DBSetup.py", db_path],
+        capture_output=True, text=True
+    )
+    return result.returncode == 0, result.stderr
+
+# ---- Profile Selection Screen ----
+st.set_page_config(page_title="Family Todo", layout="wide")
+
+if "profile" not in st.session_state:
+    st.title("👨‍👩‍👧‍👦 Family Todo List")
+    st.subheader("Who are you?")
+
+    profiles = load_profiles()
+
+    col_select, col_create = st.columns([2, 1])
+
+    with col_select:
+        if profiles:
+            chosen = st.selectbox(
+                "Select your profile",
+                options=list(profiles.keys()),
+                index=None,
+                placeholder="Pick a family member..."
+            )
+            if st.button("➡️ Open My Tasks", disabled=chosen is None, use_container_width=True):
+                db_path = profiles[chosen]
+                # Initialize DB if it doesn't exist yet
+                if not os.path.exists(db_path):
+                    ok, err = init_profile_db(db_path)
+                    if not ok:
+                        st.error(f"Could not create database: {err}")
+                        st.stop()
+                st.session_state["profile"] = chosen
+                st.session_state["db_path"] = db_path
+                st.session_state["db_initialized"] = True
+                st.rerun()
+        else:
+            st.info("No profiles yet — create one on the right!")
+
+    with col_create:
+        with st.form("create_profile"):
+            st.markdown("**Create a new profile**")
+            new_name = st.text_input("Your name", placeholder="e.g. Mum, Dad, Lily…")
+            avatar = st.selectbox("Pick an emoji avatar", ["👤","👩","👨","🧒","👧","👦","🧑","👴","👵","🐶","🐱"])
+            if st.form_submit_button("Create Profile"):
+                new_name = new_name.strip()
+                if not new_name:
+                    st.error("Please enter a name.")
+                elif new_name in profiles:
+                    st.error("A profile with that name already exists.")
+                else:
+                    slug = slugify(new_name)
+                    db_path = f"todo_{slug}.db"
+                    ok, err = init_profile_db(db_path)
+                    if not ok:
+                        st.error(f"Database setup failed: {err}")
+                    else:
+                        profiles[new_name] = db_path
+                        save_profiles(profiles)
+                        st.success(f"Profile '{new_name}' created! Select it on the left.")
+                        st.rerun()
+
+    # Show existing profiles as cards
+    if profiles:
+        st.markdown("---")
+        st.markdown("**Family members:**")
+        cols = st.columns(min(len(profiles), 5))
+        for i, name in enumerate(profiles):
+            with cols[i % 5]:
+                st.markdown(f"### 👤\n**{name}**")
+
+    st.stop()  # Don't render the rest of the app until a profile is chosen
+
+# ---- Profile is selected — show header and logout ----
+profile_name = st.session_state["profile"]
+
+col_title, col_logout = st.columns([5, 1])
+with col_title:
+    st.title(f"📋 {profile_name}'s Todo List")
+with col_logout:
+    st.write("")
+    if st.button("🔄 Switch Profile"):
+        for key in ["profile", "db_path", "db_initialized"]:
+            st.session_state.pop(key, None)
+        st.rerun()
+
+# -----------------------------
+# Run DBSetup.py once per session (for already-logged-in profile)
 # -----------------------------
 if "db_initialized" not in st.session_state:
+    db_path = st.session_state.get("db_path", "todo.db")
     result = subprocess.run(
-        [sys.executable, "DBSetup.py"],
+        [sys.executable, "DBSetup.py", db_path],
         capture_output=True,
         text=True
     )
@@ -89,24 +201,12 @@ def insert_task(title, description, due_date, parent_id, category_id, priority_i
         return cursor.lastrowid
 
 def delete_category(category_id):
-    """
-    Deletes a category and reassigns its contents.
-    - Tasks under this category will become 'Uncategorized'.
-    - Sub-categories will become top-level categories.
-    Returns a tuple (bool_success, str_message).
-    """
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
-            # Re-parent sub-categories to become top-level categories
             cursor.execute("UPDATE categories SET parent_id = NULL WHERE parent_id = ?", (category_id,))
-            
-            # Un-categorize tasks belonging to this category
             cursor.execute("UPDATE tasks SET category_id = NULL WHERE category_id = ?", (category_id,))
-            
-            # Now, delete the category
             cursor.execute("DELETE FROM categories WHERE id = ?", (category_id,))
-            
             conn.commit()
             return True, "Category deleted. Its tasks are now uncategorized and its sub-categories are now top-level."
         except sqlite3.Error as e:
@@ -117,8 +217,6 @@ def delete_category(category_id):
 # -----------------------------
 # Streamlit App
 # -----------------------------
-st.set_page_config(page_title="Todo List", layout="wide")
-st.title("📋 Hierarchical Todo List")
 
 # Load data
 category_hierarchy = build_category_hierarchy()
@@ -190,7 +288,7 @@ with st.expander("🗂️ Manage Categories", expanded=False):
             options=options_to_delete,
             index=None,
             placeholder="Select a category to delete...",
-            disabled=not options_to_delete # Disable if no categories exist
+            disabled=not options_to_delete
         )
         st.warning("⚠️ **Warning:** Deleting a category will move its tasks to 'Uncategorized' and make its sub-categories top-level categories.")
 
@@ -287,8 +385,6 @@ def render_subtask_form(parent_task_id, depth=1):
 st.markdown("---")
 st.header("Tasks by Category")
 
-# <<< START: EDITED SECTION >>>
-# Filters and Sorting
 col_f1, col_f2, col_f3 = st.columns(3)
 with col_f1:
     selected_full_paths = st.multiselect(
@@ -310,23 +406,15 @@ with col_f3:
 
 tasks_df = fetch_task_tree(selected_category_ids=selected_cat_ids, show_completed=show_completed)
 
-# Apply sorting if a sort order is chosen
 if not tasks_df.empty and sort_by != "Default Order":
     if sort_by == "Status":
-        # Define the desired order for statuses for sorting
         status_order = ["In Progress", "Ongoing", "Blocked", "Not Started", "Completed", "Cancelled"]
         tasks_df['current_status'] = pd.Categorical(tasks_df['current_status'], categories=status_order, ordered=True)
-        # Sort by status, then by priority as a secondary factor
         tasks_df = tasks_df.sort_values(by=['current_status', 'priority_level'])
-
     elif sort_by == "Priority":
-        # Sort by priority level (assuming lower level is higher priority), then by due date
         tasks_df = tasks_df.sort_values(by=['priority_level', 'due_date'], ascending=[True, True], na_position='last')
-
     elif sort_by == "Due Date (Soonest)":
-        # Sort by due date, putting tasks without a due date at the end
         tasks_df = tasks_df.sort_values(by='due_date', ascending=True, na_position='last')
-# <<< END: EDITED SECTION >>>
 
 uncategorized_tasks = tasks_df[pd.isna(tasks_df['category_id'])] if not tasks_df.empty else pd.DataFrame()
 
@@ -353,7 +441,6 @@ else:
         num_subs = int(row['num_subtasks'])
         status_color = status_colors.get(status, "#888888")
         text_color = "black" if status == "Ongoing" else "white"
-
 
         if pd.isna(row['due_date']):
             due_label = "TBD"
@@ -392,7 +479,6 @@ else:
                         value=row['description'] if pd.notna(row['description']) else "",
                         key=f"desc_editor_{row['id']}"
                     )
-                    
                     if st.form_submit_button("Save Description"):
                         with get_connection() as conn:
                             conn.execute(
@@ -526,7 +612,7 @@ h4 {
     color: #F7DC6F;
 }
 </style>\n""")
-        md.write(f"# Todo List Export\n\n")
+        md.write(f"# {profile_name}'s Todo List Export\n\n")
         md.write(f"Generated on: {date.today().strftime('%Y-%m-%d')}\n\n")
         
         md.write("Priority Level | Meaning\n")
@@ -612,8 +698,7 @@ h4 {
         st.download_button(
             label="📥 Download Markdown File",
             data=markdown_content,
-            file_name=f"todo_export_{date.today().strftime('%Y%m%d')}.md",
+            file_name=f"{profile_name}_todo_export_{date.today().strftime('%Y%m%d')}.md",
             mime="text/markdown"
         )
 st.caption("Export includes all tasks, sorted by due date, with descriptions and full category hierarchy.")
-

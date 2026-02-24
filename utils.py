@@ -25,7 +25,6 @@ def fetch_profiles() -> pd.DataFrame:
     client = get_client()
     response = client.table("profiles").select("id, name").order("name").execute()
     data = response.data or []
-    # Always return a DataFrame with the expected columns, even when empty
     return pd.DataFrame(data, columns=["id", "name"]) if not data else pd.DataFrame(data)
 
 
@@ -138,6 +137,7 @@ def insert_status_log(task_id: int, status_name: str, reason=None, extra_info=No
 
 
 def get_current_status(task_id: int) -> str:
+    """Single task lookup — only use this outside of fetch_task_tree."""
     response = (
         get_client().table("task_status_logs")
         .select("statuses(name)")
@@ -149,6 +149,32 @@ def get_current_status(task_id: int) -> str:
     if response.data:
         return (response.data[0].get("statuses") or {}).get("name", "Pending")
     return "Pending"
+
+
+def fetch_all_current_statuses(task_ids: list) -> dict:
+    """Fetch the latest status for ALL tasks in ONE single query.
+    Returns {task_id: status_name} — eliminates the N+1 query problem."""
+    if not task_ids:
+        return {}
+    response = (
+        get_client().table("task_status_logs")
+        .select("task_id, id, statuses(name)")
+        .in_("task_id", task_ids)
+        .order("id", desc=True)
+        .execute()
+    )
+    rows = response.data or []
+    # Keep only the first (highest id = latest) row seen per task
+    seen = {}
+    for row in rows:
+        tid = row["task_id"]
+        if tid not in seen:
+            seen[tid] = (row.get("statuses") or {}).get("name", "Pending")
+    # Tasks with no log entry default to Pending
+    for tid in task_ids:
+        if tid not in seen:
+            seen[tid] = "Pending"
+    return seen
 
 
 def fetch_status_history(task_id: int) -> pd.DataFrame:
@@ -208,7 +234,12 @@ def fetch_task_tree(selected_category_ids=None, show_completed=False) -> pd.Data
         })
 
     df = pd.DataFrame(records)
-    df["current_status"] = df["id"].apply(get_current_status)
+
+    # ONE bulk query for all statuses instead of one query per task
+    task_ids = df["id"].tolist()
+    status_map = fetch_all_current_statuses(task_ids)
+    df["current_status"] = df["id"].map(status_map)
+
     df["num_subtasks"] = df["id"].apply(
         lambda tid: sum(1 for rec in records if rec["parent_id"] == tid)
     )
